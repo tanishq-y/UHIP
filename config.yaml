@@ -1,0 +1,29 @@
+project: UHIP
+version: "0.1"
+city: delhi
+
+paths:
+  data_dir: "data/processed"
+
+layers:
+  lst_c: "LST_Celsius_COG.tif"
+  ndvi: "NDVI_COG.tif"
+  ndbi: "NDBI_COG.tif"
+  build_density: "BUILD_DENSITY_COG.tif"
+  uhvi: "UHVI_FINAL_COG.tif"
+
+crs:
+  target: "EPSG:32643"
+  wgs84: "EPSG:4326"
+
+fusion:
+  weights:
+    lst: 0.40
+    ndbi: 0.30
+    build: 0.20
+    ndvi: -0.10
+  method: "robust_percentile" # instead of min-max
+
+validation:
+  imd_stations:
+    - {name: "Safdarjung", lat: 28.588, lon: 77.206, expected_lst_july: 34.5}

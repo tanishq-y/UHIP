@@ -1,65 +1,44 @@
-"""
-preprocess_landsat.py
-UHIP - Landsat-8 L2SP preprocessing for Delhi UHI
-Run: python preprocess_landsat.py
-"""
-import rasterio
+import rasterio as rio
 import numpy as np
 from pathlib import Path
 
-# --- CONFIG ---
-DATA_RAW = Path("data/raw")
-DATA_PROC = Path("data/processed")
-DATA_PROC.mkdir(parents=True, exist_ok=True)
+RAW = Path("data/raw/landsat")   # <-- fixed path
+PROC = Path("data/processed")
+PROC.mkdir(parents=True, exist_ok=True)
 
-# Input files (rename your downloads to these)
-B4 = DATA_RAW / "LC08_B4.tif"   # Red
-B5 = DATA_RAW / "LC08_B5.tif"   # NIR
-B6 = DATA_RAW / "LC08_B6.tif"   # SWIR1
-ST = DATA_RAW / "LC08_ST_B10.tif"  # Surface Temp (Kelvin *0.01?)
+# find ST_B10 in landsat folder, any case
+st_files = list(RAW.rglob("*ST_B10.tif")) + list(RAW.rglob("*ST_B10.TIF"))
 
-def read_band(path):
-    with rasterio.open(path) as src:
-        arr = src.read(1).astype("float32")
-        profile = src.profile
-        nodata = src.nodata
-    arr[arr == nodata] = np.nan
-    return arr, profile
+if not st_files:
+    print("Files found in data/raw/landsat:")
+    for f in RAW.rglob("*"):
+        if f.is_file(): print(" ", f.name)
+    raise FileNotFoundError("No ST_B10 found")
 
-print("Reading Landsat bands...")
-red, prof = read_band(B4)
-nir, _ = read_band(B5)
-swir, _ = read_band(B6)
-lst_raw, _ = read_band(ST)
+st_path = sorted(st_files)[-1]
+print(f"Using: {st_path}")
 
-# --- NDVI ---
-ndvi = (nir - red) / (nir + red + 1e-6)
-ndvi = np.clip(ndvi, -1, 1)
+with rio.open(st_path) as src:
+    st = src.read(1).astype("float32")
+    profile = src.profile
 
-# --- NDBI ---
-ndbi = (swir - nir) / (swir + nir + 1e-6)
-ndbi = np.clip(ndbi, -1, 1)
+    st = np.where(st == 0, np.nan, st)
+    
+    # Landsat Collection 2 Level-2 Surface Temperature
+    lst_kelvin = st * 0.00341802 + 149.0
+    lst_celsius = lst_kelvin - 273.15
+    print(f"Before any masking: min={np.nanmin(st):.0f}, max={np.nanmax(st):.0f} DN")
 
-# --- LST ---
-# Landsat Collection 2 L2 ST_B10 is in Kelvin scaled by 0.01
-lst_k = lst_raw * 0.01
-lst_c = lst_k - 273.15
+    print(f"Raw LST: {np.nanmin(lst_celsius):.1f}°C to {np.nanmax(lst_celsius):.1f}°C")
 
-# --- UHVI (simple index) ---
-uhvi = (lst_c * (ndbi + 1)) / (ndvi + 1.01)  # +1 to avoid div0
-uhvi = np.clip(uhvi, -50, 100)
+    # Clip to Delhi realistic
+    lst_celsius = np.clip(lst_celsius, 20, 50)
 
-def save(arr, name):
-    prof_out = prof.copy()
-    prof_out.update(dtype=rasterio.float32, count=1, compress="lzw", nodata=-9999)
-    arr_out = np.where(np.isnan(arr), -9999, arr).astype(np.float32)
-    with rasterio.open(DATA_PROC / name, "w", **prof_out) as dst:
-        dst.write(arr_out, 1)
-    print("Saved", name)
+profile.update(dtype="float32", compress="lzw", nodata=np.nan)
 
-save(ndvi, "NDVI.tif")
-save(ndbi, "NDBI.tif")
-save(lst_c, "LST_C.tif")
-save(uhvi, "UHVI.tif")
+out_path = PROC / "LST_Celsius.tif"
+with rio.open(out_path, "w", **profile) as dst:
+    dst.write(lst_celsius, 1)
 
-print("\nDone! Check data/processed/")
+print(f"✓ Saved {out_path}")
+print(f"✓ Final LST: {np.nanmin(lst_celsius):.1f}°C to {np.nanmax(lst_celsius):.1f}°C")

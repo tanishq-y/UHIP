@@ -1,137 +1,124 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 import rasterio
-from rasterio.windows import Window
-from pyproj import Transformer
+from rasterio.warp import transform
 import numpy as np
-from datetime import datetime
 from pathlib import Path
-import glob
+import yaml
+from functools import lru_cache
+from rio_tiler.io import COGReader
+from rio_tiler.utils import render
+from rio_tiler.errors import TileOutsideBounds
+from PIL import Image
+import io
 
-app = FastAPI(
-    title="UHIP Backend",
-    description="ISRO Hackathon - Delhi Urban Heat Island API",
-    version="1.1"
-)
+# --- Load config ---
+with open("config.yaml") as f:
+    CFG = yaml.safe_load(f)
 
-# CORS for React frontend
+DATA_DIR = Path(CFG["paths"]["data_dir"])
+LAYERS = {k: DATA_DIR / v for k, v in CFG["layers"].items()}
+
+app = FastAPI(title="UHIP API v2.2")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# --- AUTO-PICK LATEST RASTERS ---
-data_dir = Path("data/processed")
-latest_lst_files = sorted(data_dir.glob("LST_Delhi_*_COG.tif"))
-if not latest_lst_files:
-    raise RuntimeError("No LST files found in data/processed/")
-
-latest_lst = latest_lst_files[-1] # newest by filename date
-uhvi_path = data_dir / "UHVI_ENHANCED.tif"
-
-RASTERS = {
-    "lst": {
-        "path": str(latest_lst),
-        "name": "Land Surface Temperature"
-    },
-    "uhvi": {
-        "path": str(uhvi_path),
-        "name": "Urban Heat Vulnerability Index"
-    }
+# --- Colormap for UHVI (green → yellow → orange → red) ---
+UHVI_CMAP = {
+    0: [34, 197, 94, 255], # low
+    76: [234, 179, 8, 255], # moderate
+    128: [249, 115, 22, 255], # high
+    178: [220, 38, 38, 255], # extreme
+    255: [127, 29, 29, 255],
 }
 
-print(f"Loading LST: {latest_lst.name}")
-print(f"Loading UHVI: {uhvi_path.name}")
+# Transparent tile for out-of-bounds
+_trans = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
+_buf = io.BytesIO()
+_trans.save(_buf, format="PNG")
+TRANSPARENT_PNG = _buf.getvalue()
 
-# --- LOAD ONCE AT STARTUP ---
-datasets = {}
-transformers = {}
-
-for key, meta in RASTERS.items():
-    try:
-        ds = rasterio.open(meta["path"])
-        datasets[key] = ds
-        transformers[key] = Transformer.from_crs("EPSG:4326", ds.crs, always_xy=True)
-        print(f"✓ Loaded {key}: {ds.width}x{ds.height} CRS:{ds.crs}")
-    except Exception as e:
-        print(f"✗ Failed {key}: {e}")
-        datasets[key] = None
-
-def sample_raster(key, lat, lon):
-    ds = datasets.get(key)
-    if not ds:
+# --- Cached point sampler ---
+@lru_cache(maxsize=512)
+def sample_raster(path_str: str, lon: float, lat: float):
+    path = Path(path_str)
+    if not path.exists():
         return None
     try:
-        x, y = transformers[key].transform(lon, lat)
-        row, col = ds.index(x, y)
-        if not (0 <= row < ds.height and 0 <= col < ds.width):
-            return None
-        val = ds.read(1, window=Window(col, row, 1, 1))[0, 0]
-        if val == ds.nodata or np.isnan(val):
-            return None
-        val = float(val)
-
-        # --- ROBUST NORMALIZATION FOR UHVI ---
-        if key == "uhvi":
-            # normalize 0-255 or 0-1000 to 0-1
-            if val > 10:
-                val = val / 1000 if val > 255 else val / 255
-            # invert vegetation to heat vulnerability
-            val = 1.0 - val
-            val = max(0.0, min(1.0, val))
-
-        return val
+        with rasterio.open(path) as src:
+            xs, ys = transform("EPSG:4326", src.crs, [lon], [lat])
+            x, y = xs[0], ys[0]
+            if not (src.bounds.left <= x <= src.bounds.right and
+                    src.bounds.bottom <= y <= src.bounds.top):
+                return None
+            val = list(rasterio.sample.sample_gen(src, [(x, y)]))[0][0]
+            if val is None or (isinstance(val, float) and np.isnan(val)):
+                return None
+            return round(float(val), 4)
     except Exception as e:
-        print(f"sample error {key}:", e)
+        print(f"Sample error {path.name}: {e}")
         return None
 
-@app.get("/uhi")
-def get_uhi(lat: float, lon: float):
-    """Return LST (°C) + UHVI for any lat/lon"""
-    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-        raise HTTPException(400, "Invalid coordinates")
-
-    lst = sample_raster("lst", lat, lon)
-    uhvi = sample_raster("uhvi", lat, lon)
-
-    lst_class = (
-        "low" if lst and lst < 32 else
-        "medium" if lst and lst < 38 else
-        "high" if lst else "unknown"
-    )
-
-    uhvi_class = (
-        "low" if uhvi is not None and uhvi < 0.2 else
-        "medium" if uhvi is not None and uhvi < 0.4 else
-        "high" if uhvi is not None else "unknown"
-    )
-
-    return {
-        "query": {"lat": round(lat, 6), "lon": round(lon, 6)},
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "data": {
-            "lst_c": round(lst, 1) if lst is not None else None,
-            "lst_class": lst_class,
-            "uhvi": round(uhvi, 3) if uhvi is not None else None,
-            "uhvi_class": uhvi_class,
-        },
-        "source": {
-            "lst": f"Landsat-9 {latest_lst.stem.split('_')[2]}",
-            "uhvi": "Landsat-9 + Sentinel-2 fusion"
-        },
-        "status": "ok" if lst is not None else "outside_coverage"
-    }
-
-@app.get("/health")
+@app.get("/api/health")
 def health():
     return {
-        "status": "healthy",
-        "rasters_loaded": {k: v is not None for k, v in datasets.items()},
-        "active_lst": latest_lst.name,
-        "coverage": "Delhi NCR"
+        "status": "ok",
+        "version": CFG.get("version", "0.1"),
+        "layers": {k: p.exists() for k, p in LAYERS.items()}
     }
 
-@app.get("/")
-def root():
-    return {"message": "UHIP Backend v1.1 - use /uhi?lat=..&lon=.."}
+@app.get("/api/point")
+def point(lat: float, lon: float):
+    vals = {name: sample_raster(str(path), lon, lat)
+            for name, path in LAYERS.items()}
+
+    uhvi = vals.get("uhvi")
+    risk = "Unknown"
+    if uhvi is not None:
+        if uhvi > 0.7:
+            risk = "Extreme"
+        elif uhvi > 0.5:
+            risk = "High"
+        elif uhvi > 0.3:
+            risk = "Moderate"
+        else:
+            risk = "Low"
+
+    return {
+        "lat": lat,
+        "lon": lon,
+        "location": f"{lat:.4f}, {lon:.4f}",
+        **vals,
+        "risk_level": risk,
+        "source": f"UHIP {CFG.get('version', '0.1')}"
+    }
+
+@app.get("/api/tile/{z}/{x}/{y}.png")
+def tile(z: int, x: int, y: int):
+    uhvi_path = LAYERS.get("uhvi")
+    if not uhvi_path or not uhvi_path.exists():
+        return Response(content=TRANSPARENT_PNG, media_type="image/png")
+
+    try:
+        with COGReader(str(uhvi_path)) as cog:
+            img = cog.tile(x, y, z, tilesize=256)
+
+            data = img.data[0].astype(np.float32)
+            mask = img.mask
+
+            # Stretch UHVI 0.3-0.8 to 0-255 for visibility (Delhi range)
+            vmin, vmax = 0.3, 0.8
+            scaled = np.clip((data - vmin) / (vmax - vmin) * 255, 0, 255).astype(np.uint8)
+
+            png_bytes = render(scaled, mask=mask, colormap=UHVI_CMAP, img_format="PNG")
+            return Response(content=png_bytes, media_type="image/png")
+
+    except TileOutsideBounds:
+        return Response(content=TRANSPARENT_PNG, media_type="image/png")
+    except Exception as e:
+        print(f"Tile error {z}/{x}/{y}: {e}")
+        return Response(content=TRANSPARENT_PNG, media_type="image/png")

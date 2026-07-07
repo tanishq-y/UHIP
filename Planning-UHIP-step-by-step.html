@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html><head><title>UHIP Delhi Heatmap</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>body{margin:0}#map{height:100vh}</style>
+</head><body>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([28.6139,77.209],12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{opacity:0.6}).addTo(map);
+
+// YOUR heatmap tiles
+L.tileLayer('http://localhost:8000/api/tile/{z}/{x}/{y}.png',{
+  opacity:0.85,
+  attribution:'UHIP v0.1'
+}).addTo(map);
+
+// Keep point click
+map.on('click', async e=>{
+  const r=await fetch(`http://localhost:8000/api/point?lat=${e.latlng.lat}&lon=${e.latlng.lng}`);
+  const d=await r.json();
+  L.popup().setLatLng(e.latlng).setContent(`<b>UHVI ${d.uhvi}</b><br>${d.risk_level}<br>${d.lst_c}°C`).openOn(map);
+});
+</script></body></html>
