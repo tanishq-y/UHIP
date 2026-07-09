@@ -1,40 +1,43 @@
-import rasterio as rio
-from rasterio.warp import reproject, Resampling
-import numpy as np
+import rasterio as rio, numpy as np
 from pathlib import Path
+from rasterio.warp import reproject, Resampling
 
 PROC = Path("data/processed")
+RAW = Path("data/raw/landsat")
 
-print("Loading LST as master grid...")
-with rio.open(PROC/"LST_Celsius.tif") as ref:
-    lst = ref.read(1).astype("float32")
-    profile = ref.profile
-    shape, transform, crs = lst.shape, ref.transform, ref.crs
-
-def load(path, resampling=Resampling.bilinear):
+def load(path, ref_profile=None, ref_shape=None):
     with rio.open(path) as src:
-        out = np.empty(shape, dtype="float32")
-        reproject(
-            source=rio.band(src,1), destination=out,
-            src_transform=src.transform, src_crs=src.crs,
-            dst_transform=transform, dst_crs=crs,
-            resampling=resampling, src_nodata=np.nan, dst_nodata=np.nan
-        )
-    return out
+        arr = src.read(1).astype("float32")
+        if ref_profile is not None:
+            dst = np.empty(ref_shape, dtype="float32")
+            reproject(arr, dst, src_transform=src.transform, src_crs=src.crs,
+                      dst_transform=ref_profile["transform"], dst_crs=ref_profile["crs"],
+                      dst_width=ref_shape[1], dst_height=ref_shape[0],
+                      resampling=Resampling.bilinear, src_nodata=src.nodata, dst_nodata=np.nan)
+            return dst
+        return arr, src.profile
 
-ndvi = load(PROC/"NDVI.tif")
-ndbi = load(PROC/"NDBI.tif")
-build = load(PROC/"BUILD_DENSITY.tif")  # your existing file
+lst, prof = load(PROC/"LST_Celsius.tif")
+h,w = lst.shape
 
-def norm(a):
-    a = np.where(np.isnan(a), np.nanmedian(a), a)
-    return (a - a.min()) / (a.max() - a.min() + 1e-9)
+# NDVI / NDBI from your existing files but force correct range
+ndvi,_ = load(PROC/"NDVI.tif", prof, (h,w))
+ndbi,_ = load(PROC/"NDBI.tif", prof, (h,w))
+build,_ = load(PROC/"BUILD_DENSITY.tif", prof, (h,w))
 
-uhvi = 0.4*norm(lst) + 0.3*norm(ndbi) + 0.2*norm(build) - 0.1*norm(ndvi)
-uhvi = np.clip(uhvi, 0, 1)
+# fix scaling if NDVI is still DN
+ndvi = np.clip(ndvi, -1, 1)
+ndbi = np.clip(ndbi, -1, 1)
 
-with rio.open(PROC/"UHVI.tif","w",**profile) as dst:
-    dst.write(uhvi,1)
+# TRUE UHVI
+mean_lst = np.nanmean(lst)
+uhvi = (lst - mean_lst) / mean_lst
+uhvi = np.clip(uhvi, -0.4, 0.8) # keep physical range
 
-print(f"✓ DONE - LST {np.nanmin(lst):.1f}°C to {np.nanmax(lst):.1f}°C")
-print(f"✓ UHVI {np.nanmin(uhvi):.3f} to {np.nanmax(uhvi):.3f}")
+print(f"LST mean {mean_lst:.1f}C | Lodhi should be < mean, ITO > mean")
+print(f"UHVI {np.nanmin(uhvi):.2f} to {np.nanmax(uhvi):.2f}")
+
+prof.update(dtype="float32", nodata=np.nan, compress="lzw")
+for name, arr in [("UHVI_FINAL",uhvi), ("NDVI",ndvi), ("NDBI",ndbi), ("BUILD_DENSITY",build)]:
+    with rio.open(PROC/f"{name}.tif","w",**prof) as dst:
+        dst.write(arr,1)

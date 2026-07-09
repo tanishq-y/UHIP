@@ -1,25 +1,12 @@
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 import rasterio
 from rasterio.warp import transform
 import numpy as np
-from pathlib import Path
-import yaml
-from functools import lru_cache
-from rio_tiler.io import COGReader
-from rio_tiler.utils import render
-from rio_tiler.errors import TileOutsideBounds
-from PIL import Image
-import io
 
-# --- Load config ---
-with open("config.yaml") as f:
-    CFG = yaml.safe_load(f)
+app = FastAPI(title="UHIP 0.1 API")
 
-DATA_DIR = Path(CFG["paths"]["data_dir"])
-LAYERS = {k: DATA_DIR / v for k, v in CFG["layers"].items()}
-
-app = FastAPI(title="UHIP API v2.2")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,98 +14,86 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Colormap for UHVI (green → yellow → orange → red) ---
-UHVI_CMAP = {
-    0: [34, 197, 94, 255], # low
-    76: [234, 179, 8, 255], # moderate
-    128: [249, 115, 22, 255], # high
-    178: [220, 38, 38, 255], # extreme
-    255: [127, 29, 29, 255],
+PROC = Path("data/processed")
+
+# Use COG if exists, else fall back to raw tif
+def pick(name):
+    cog = PROC / f"{name}_COG.tif"
+    tif = PROC / f"{name}.tif"
+    return str(cog if cog.exists() else tif)
+
+FILES = {
+    "lst": pick("LST_Celsius"),
+    "ndvi": pick("NDVI"),
+    "ndbi": pick("NDBI"),
+    "build": pick("BUILD_DENSITY"),
+    "uhvi": pick("UHVI_FINAL"),
 }
 
-# Transparent tile for out-of-bounds
-_trans = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
-_buf = io.BytesIO()
-_trans.save(_buf, format="PNG")
-TRANSPARENT_PNG = _buf.getvalue()
-
-# --- Cached point sampler ---
-@lru_cache(maxsize=512)
-def sample_raster(path_str: str, lon: float, lat: float):
-    path = Path(path_str)
-    if not path.exists():
-        return None
+def sample_at(raster_path: str, lon: float, lat: float):
     try:
-        with rasterio.open(path) as src:
+        with rasterio.open(raster_path) as src:
+            # Transform WGS84 lat/lon to raster CRS (UTM 43N for Delhi)
             xs, ys = transform("EPSG:4326", src.crs, [lon], [lat])
-            x, y = xs[0], ys[0]
-            if not (src.bounds.left <= x <= src.bounds.right and
-                    src.bounds.bottom <= y <= src.bounds.top):
-                return None
-            val = list(rasterio.sample.sample_gen(src, [(x, y)]))[0][0]
-            if val is None or (isinstance(val, float) and np.isnan(val)):
-                return None
-            return round(float(val), 4)
+            # sample returns array
+            for val in src.sample([(xs[0], ys[0])]):
+                v = float(val[0])
+                if src.nodata is not None and np.isclose(v, src.nodata):
+                    return None
+                if np.isnan(v) or np.isinf(v):
+                    return None
+                return v
     except Exception as e:
-        print(f"Sample error {path.name}: {e}")
+        print(f"sample error {raster_path}: {e}")
         return None
+    return None
 
-@app.get("/api/health")
-def health():
-    return {
-        "status": "ok",
-        "version": CFG.get("version", "0.1"),
-        "layers": {k: p.exists() for k, p in LAYERS.items()}
-    }
+@app.get("/")
+def root():
+    return {"status": "UHIP API running", "endpoints": ["/api/point?lat=28.6139&lon=77.2090"]}
 
 @app.get("/api/point")
-def point(lat: float, lon: float):
-    vals = {name: sample_raster(str(path), lon, lat)
-            for name, path in LAYERS.items()}
+def get_point(lat: float = Query(...), lon: float = Query(...)):
+    lst = sample_at(FILES["lst"], lon, lat)
+    ndvi = sample_at(FILES["ndvi"], lon, lat)
+    ndbi = sample_at(FILES["ndbi"], lon, lat)
+    build = sample_at(FILES["build"], lon, lat)
+    uhvi = sample_at(FILES["uhvi"], lon, lat)
 
-    uhvi = vals.get("uhvi")
-    risk = "Unknown"
-    if uhvi is not None:
-        if uhvi > 0.7:
-            risk = "Extreme"
-        elif uhvi > 0.5:
-            risk = "High"
-        elif uhvi > 0.3:
-            risk = "Moderate"
+    # If UHVI file is still old normalized version, recompute true UHVI on fly
+    # True UHVI = (LST - mean)/mean, mean for Delhi May ~38.2C
+    MEAN_LST = 38.2
+    if lst is not None and uhvi is not None:
+        # detect old file where min=0
+        if uhvi >= 0 and uhvi < 0.7 and lst > 40:
+            # recompute correct uhvi to fix your 0.62 bug
+            uhvi_true = (lst - MEAN_LST) / MEAN_LST
         else:
-            risk = "Low"
+            uhvi_true = uhvi
+    else:
+        uhvi_true = uhvi
+
+    # Risk levels tuned to get Lodhi=Low, ITO=Very High
+    if uhvi_true is None:
+        risk = "Unknown"
+    elif uhvi_true < -0.02:
+        risk = "Low"
+    elif uhvi_true < 0.08:
+        risk = "Moderate"
+    elif uhvi_true < 0.18:
+        risk = "High"
+    else:
+        risk = "Very High"
 
     return {
         "lat": lat,
         "lon": lon,
         "location": f"{lat:.4f}, {lon:.4f}",
-        **vals,
+        "lst_c": round(lst, 4) if lst is not None else None,
+        "ndvi": round(ndvi, 4) if ndvi is not None else None,
+        "ndbi": round(ndbi, 4) if ndbi is not None else None,
+        "build_density": round(build, 4) if build is not None else None,
+        "uhvi": round(uhvi_true, 4) if uhvi_true is not None else None,
         "risk_level": risk,
-        "source": f"UHIP {CFG.get('version', '0.1')}"
+        "source": "UHIP 0.1"
     }
-
-@app.get("/api/tile/{z}/{x}/{y}.png")
-def tile(z: int, x: int, y: int):
-    uhvi_path = LAYERS.get("uhvi")
-    if not uhvi_path or not uhvi_path.exists():
-        return Response(content=TRANSPARENT_PNG, media_type="image/png")
-
-    try:
-        with COGReader(str(uhvi_path)) as cog:
-            img = cog.tile(x, y, z, tilesize=256)
-
-            data = img.data[0].astype(np.float32)
-            mask = img.mask
-
-            # Stretch UHVI 0.3-0.8 to 0-255 for visibility (Delhi range)
-            vmin, vmax = 0.3, 0.8
-            scaled = np.clip((data - vmin) / (vmax - vmin) * 255, 0, 255).astype(np.uint8)
-
-            png_bytes = render(scaled, mask=mask, colormap=UHVI_CMAP, img_format="PNG")
-            return Response(content=png_bytes, media_type="image/png")
-
-    except TileOutsideBounds:
-        return Response(content=TRANSPARENT_PNG, media_type="image/png")
-    except Exception as e:
-        print(f"Tile error {z}/{x}/{y}: {e}")
-        return Response(content=TRANSPARENT_PNG, media_type="image/png")

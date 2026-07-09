@@ -2,43 +2,27 @@ import rasterio as rio
 import numpy as np
 from pathlib import Path
 
-RAW = Path("data/raw/landsat")   # <-- fixed path
+RAW = Path("data/raw/landsat")
 PROC = Path("data/processed")
-PROC.mkdir(parents=True, exist_ok=True)
 
-# find ST_B10 in landsat folder, any case
-st_files = list(RAW.rglob("*ST_B10.tif")) + list(RAW.rglob("*ST_B10.TIF"))
+st_path = sorted(RAW.glob("*ST_B10.TIF"))[0]
+qa_path = sorted(RAW.glob("*QA_PIXEL.TIF"))[0]
 
-if not st_files:
-    print("Files found in data/raw/landsat:")
-    for f in RAW.rglob("*"):
-        if f.is_file(): print(" ", f.name)
-    raise FileNotFoundError("No ST_B10 found")
+with rio.open(st_path) as st_src, rio.open(qa_path) as qa_src:
+    st = st_src.read(1).astype("float32")
+    qa = qa_src.read(1).astype("uint32")
+    profile = st_src.profile
 
-st_path = sorted(st_files)[-1]
-print(f"Using: {st_path}")
+    bad = (st==0) | ((qa>>1)&1) | ((qa>>2)&1) | ((qa>>3)&1) | ((qa>>4)&1) | ((qa>>5)&1)
+    st = np.where(bad, np.nan, st)
+    lst_c = st * 0.00341802 + 149.0 - 273.15
+    lst_c = np.where((lst_c < 0) | (lst_c > 62), np.nan, lst_c)
 
-with rio.open(st_path) as src:
-    st = src.read(1).astype("float32")
-    profile = src.profile
+print(f"ST: {st_path.name}")
+print(f"QA: {qa_path.name}")
+print(f"Final LST: {np.nanmin(lst_c):.1f}°C to {np.nanmax(lst_c):.1f}°C")
+print(f"Valid: {np.isfinite(lst_c).sum()/lst_c.size*100:.1f}%")
 
-    st = np.where(st == 0, np.nan, st)
-    
-    # Landsat Collection 2 Level-2 Surface Temperature
-    lst_kelvin = st * 0.00341802 + 149.0
-    lst_celsius = lst_kelvin - 273.15
-    print(f"Before any masking: min={np.nanmin(st):.0f}, max={np.nanmax(st):.0f} DN")
-
-    print(f"Raw LST: {np.nanmin(lst_celsius):.1f}°C to {np.nanmax(lst_celsius):.1f}°C")
-
-    # Clip to Delhi realistic
-    lst_celsius = np.clip(lst_celsius, 20, 50)
-
-profile.update(dtype="float32", compress="lzw", nodata=np.nan)
-
-out_path = PROC / "LST_Celsius.tif"
-with rio.open(out_path, "w", **profile) as dst:
-    dst.write(lst_celsius, 1)
-
-print(f"✓ Saved {out_path}")
-print(f"✓ Final LST: {np.nanmin(lst_celsius):.1f}°C to {np.nanmax(lst_celsius):.1f}°C")
+profile.update(dtype="float32", nodata=np.nan, compress="lzw")
+with rio.open(PROC/"LST_Celsius.tif","w",**profile) as dst:
+    dst.write(lst_c,1)
