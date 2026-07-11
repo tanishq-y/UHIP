@@ -1,104 +1,124 @@
-UHIP 0.1 - Urban Heat and Vegetation Intelligence Platform | Delhi
-End to end open source platform to query Urban Heat Island risk for any lat lon in Delhi from Landsat 9 satellite.
+# UHIP — Urban Heat and Vegetation Intelligence Platform (Delhi)
 
-Status: Backend Complete | Frontend Ready for Integration
-Validated: Lodhi Garden -> Low | ITO Crossing -> Very High
+An open-source platform that derives Urban Heat Island (UHI) risk for any coordinate in Delhi from satellite imagery, and serves it via a queryable API.
 
-1. Overview
-Delhi LST ranges 25.9°C to 62.0°C in May. Built up areas are 4 to 8°C hotter than parks. This project derives LST, NDVI, NDBI, BUILD_DENSITY, UHVI from satellite and serves via FastAPI for point level query.
+**Status: Backend complete and validated. Frontend integration in progress.**
 
-2. Architecture
-Planetary Computer (Landsat 9 L2)
--> preprocess_landsat.py -> LST_Celsius.tif [EPSG:32643, 68.46% valid]
--> build_indices.py -> NDVI, NDBI, BUILD_DENSITY, UHVI_FINAL
--> make_cogs.py -> *_COG.tif (Cloud Optimized)
--> api.py -> /api/point?lat=&lon=
--> Leaflet Frontend -> Click -> Fetch API -> Popup Risk
+---
 
-3. Tech Stack
-Python, rasterio, numpy, FastAPI, uvicorn, Leaflet.js
+## 1. Overview
 
-4. Folder Structure
-UHIP/
-├── api.py                 # FastAPI backend - DO NOT CHANGE PORT
-├── preprocess_landsat.py  # LST from ST_B10 + QA_PIXEL
-├── build_indices.py       # NDVI, NDBI, BUILD, UHVI (was final_fix.py)
-├── make_cogs.py           # COG conversion
-├── index.html             # Frontend map (for frontend team)
-├── data/
-│   ├── raw/landsat/       # raw .TIFs (gitignored)
-│   └── processed/         # 5 final .tifs (download from Drive)
-├── _archive/              # old scripts
-└── .gitignore
-5. Data Setup - IMPORTANT FOR ALL TEAMMATES
-We cannot push .tif to GitHub (100MB limit). Download from Drive.
+Delhi's Land Surface Temperature (LST) ranged from 25.9°C to 62.0°C in May, with built-up areas measuring 4–8°C hotter than parks and green spaces. UHIP derives LST, NDVI, NDBI, building density, and a composite Urban Heat Vulnerability Index (UHVI) from Landsat 9 satellite imagery, and exposes point-level risk queries through a FastAPI backend.
 
-Drive Link: https://drive.google.com/drive/folders/1DSv_DiMwR5ny1vonoVwgfFcCsRatdcea?usp=sharing
-Open Drive link above
-Download these 5 files:
-LST_Celsius.tif
-NDVI.tif
-NDBI.tif
-BUILD_DENSITY.tif
-UHVI_FINAL.tif
-Create folder in project root: data/processed/
-Paste the 5 files there. Also copy them as *_COG.tif (duplicate and rename) OR run python make_cogs.py
-Option B - Auto Download
-pip install gdown
-python download_data.py
-download_data.py content:
+The goal is to make hyperlocal urban heat risk queryable down to a single lat/lon — useful for urban planning, green infrastructure prioritization, and public health context.
 
-import gdown
-gdown.download_folder("PASTE_YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE", output="data/processed/", use_cookies=False)
+## 2. Architecture
 
-# Test
+```
+Planetary Computer (Landsat 9, Level-2)
+   -> preprocess_landsat.py     LST from ST_B10 + QA_PIXEL band
+   -> build_indices.py          NDVI, NDBI, BUILD_DENSITY, UHVI
+   -> make_cogs.py               Cloud-Optimized GeoTIFF conversion
+   -> api.py                    FastAPI: /api/point?lat=&lon=
+   -> Frontend                  Click map -> fetch API -> risk popup
+```
 
-http://localhost:8000/ -> health check
-http://localhost:8000/api/point?lat=28.5933&lon=77.2219 -> should return Low
-http://localhost:8000/api/point?lat=28.628&lon=77.241 -> should return Very High
-Verified Output
-Lodhi Garden:
+## 3. Tech Stack
 
+Python · rasterio · numpy · FastAPI · uvicorn · Leaflet.js
+
+## 4. Validated Output
+
+The backend has been validated against known reference points:
+
+| Location | LST (°C) | NDVI | NDBI | Build Density | UHVI | Risk Level |
+|---|---|---|---|---|---|---|
+| Lodhi Garden | 44.50 | 0.293 | -0.114 | 0.516 | -0.021 | **Low** |
+| ITO Crossing | 48.57 | 0.209 | -0.038 | 0.628 | 0.272 | **Very High** |
+
+This is a meaningful sanity check: a well-known green space (Lodhi Garden) and a dense traffic junction (ITO Crossing) return clearly differentiated, physically plausible risk levels — confirming the pipeline behaves correctly rather than just running without errors.
+
+**Risk thresholds:** Low (UHVI < -0.015) · Moderate (< 0.05) · High (< 0.15) · Very High (≥ 0.15)
+
+## 5. API
+
+**`GET /api/point?lat={float}&lon={float}`**
+
+Valid range for Delhi: `lat` 28.4–28.9, `lon` 76.8–77.5
+
+Returns:
+```json
 {
   "lat": 28.5933, "lon": 77.2219,
   "lst_c": 44.4985, "ndvi": 0.2933, "ndbi": -0.1139,
   "build_density": 0.5157, "uhvi": -0.0209,
   "risk_level": "Low"
 }
-ITO Crossing:
+```
 
-{
-  "lat": 28.628, "lon": 77.241,
-  "lst_c": 48.5728, "ndvi": 0.2087, "ndbi": -0.0378,
-  "build_density": 0.6284, "uhvi": 0.2715,
-  "risk_level": "Very High"
-}
-If you get same output for both points, you have old COGs. Fix:
+## 6. Project Structure
 
-del data\processed\*COG.tif
-python build_indices.py
-python make_cogs.py
-9. API Docs
-GET /api/point?lat=float&lon=float
+```
+UHIP/
+├── api.py                     # FastAPI backend
+├── preprocess_landsat.py      # LST derivation from raw Landsat bands
+├── build_indices.py           # NDVI, NDBI, building density, UHVI
+├── make_cogs.py                # Cloud-Optimized GeoTIFF conversion
+├── osm_integration.py         # OpenStreetMap data integration
+├── index.html                 # Frontend map (Leaflet)
+├── data/
+│   ├── osm/                   # OSM-derived data
+│   └── processed/             # Final indexed rasters (see Data Setup)
+├── notebooks/                 # Exploratory analysis
+├── src/                       # Core modules
+└── requirements.txt
+```
 
-Params: lat 28.4 to 28.9, lon 76.8 to 77.5 for Delhi
-Returns: lst_c, ndvi, ndbi, build_density, uhvi, risk_level
+## 7. Setup
 
-Risk Logic: Low < -0.015, Moderate <0.05, High <0.15, Very High >=0.15
+### Install dependencies
+```bash
+pip install -r requirements.txt
+```
 
-10. How to Regenerate Indices (If You Change LST)
-python preprocess_landsat.py   # only if you have new raw Landsat
-python build_indices.py        # always overwrites .tif and _COG.tif
-python make_cogs.py            # optional if build already wrote COGs
-11. Common Issues
-{"detail":"Not Found"} -> You are calling wrong URL, use /api/point not /point
-Same LST for all points -> CRS bug, update to latest api.py which uses rasterio.warp.transform
-Git push fails for .tif -> Normal, data is gitignored, use Drive
-Frontend CORS error -> Ensure backend runs with CORSMiddleware (already in api.py)
-12. Team Roles
-Backend: Complete, validated, handover ready
-Frontend: Build Leaflet map, click -> fetch -> popup, risk color badge
-Report: Use Low vs Very High screenshots from Section 7
-13. Future Work
-Time series 2015-2025, Sentinel-2 10m NDVI, population exposure, deploy on Render with TiTiler.
+### Data setup
+Processed raster files (LST, NDVI, NDBI, BUILD_DENSITY, UHVI — ~5 files) exceed GitHub's size limit and are hosted separately. Download them into `data/processed/`:
 
+```bash
+pip install gdown
+python download_data.py
+```
+
+### Run the API
+```bash
+uvicorn api:app --reload
+```
+
+Health check: `http://localhost:8000/`
+Example query: `http://localhost:8000/api/point?lat=28.5933&lon=77.2219`
+
+### Regenerating indices (if source data changes)
+```bash
+python preprocess_landsat.py   # only if new raw Landsat data is added
+python build_indices.py        # recomputes all indices
+python make_cogs.py            # converts to Cloud-Optimized GeoTIFF
+```
+
+## 8. Known Issues & Fixes
+
+- **`{"detail": "Not Found"}`** — confirm the endpoint is `/api/point`, not `/point`
+- **Identical output across different coordinates** — indicates stale COG files; regenerate with `build_indices.py` + `make_cogs.py`
+- **Frontend CORS errors** — ensure the backend is running with `CORSMiddleware` enabled (already configured in `api.py`)
+
+## 9. Roadmap
+
+- Time-series analysis (2015–2025) to track UHI trends over time
+- Sentinel-2 integration for 10m-resolution NDVI (currently Landsat-derived)
+- Population exposure modeling — overlaying risk zones with population density
+- Production deployment (Render + TiTiler) for tile-based serving at scale
+
+## 10. Team
+
+Backend & data pipeline: complete and validated.
+Frontend: in progress (map-based query interface).
+Built as part of the ISRO Bharatiya Antariksh Hackathon 2026 (Problem Statement 1).
