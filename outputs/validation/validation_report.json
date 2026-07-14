@@ -1,0 +1,157 @@
+{
+  "project": "UHIP",
+  "model": "XGBRegressor",
+  "city": "Delhi",
+  "point_validation": {
+    "n_points": 9,
+    "metrics": {
+      "R2": NaN,
+      "RMSE_C": 0.04,
+      "MAE_C": 0.04
+    },
+    "points": [
+      {
+        "name": "Lodhi Garden (park)",
+        "lat": 28.5933,
+        "lon": 77.2197,
+        "expected_type": "cool",
+        "lst_actual": null,
+        "lst_predicted": null,
+        "expected_range": [
+          30,
+          36
+        ],
+        "in_expected_range": null,
+        "prediction_error": null
+      },
+      {
+        "name": "ITO (CBD)",
+        "lat": 28.628,
+        "lon": 77.241,
+        "expected_type": "hot",
+        "lst_actual": null,
+        "lst_predicted": null,
+        "expected_range": [
+          38,
+          45
+        ],
+        "in_expected_range": null,
+        "prediction_error": null
+      },
+      {
+        "name": "Connaught Place",
+        "lat": 28.6315,
+        "lon": 77.2167,
+        "expected_type": "hot",
+        "lst_actual": null,
+        "lst_predicted": null,
+        "expected_range": [
+          37,
+          44
+        ],
+        "in_expected_range": null,
+        "prediction_error": null
+      },
+      {
+        "name": "India Gate",
+        "lat": 28.6129,
+        "lon": 77.2295,
+        "expected_type": "moderate",
+        "lst_actual": null,
+        "lst_predicted": null,
+        "expected_range": [
+          33,
+          39
+        ],
+        "in_expected_range": null,
+        "prediction_error": null
+      },
+      {
+        "name": "Yamuna floodplain",
+        "lat": 28.635,
+        "lon": 77.26,
+        "expected_type": "moderate",
+        "lst_actual": null,
+        "lst_predicted": null,
+        "expected_range": [
+          32,
+          38
+        ],
+        "in_expected_range": null,
+        "prediction_error": null
+      },
+      {
+        "name": "Okhla Industrial",
+        "lat": 28.53,
+        "lon": 77.27,
+        "expected_type": "hot",
+        "lst_actual": 36.39,
+        "lst_predicted": 36.35,
+        "expected_range": [
+          39,
+          46
+        ],
+        "in_expected_range": false,
+        "prediction_error": -0.04
+      },
+      {
+        "name": "Ridge Forest",
+        "lat": 28.68,
+        "lon": 77.18,
+        "expected_type": "cool",
+        "lst_actual": null,
+        "lst_predicted": null,
+        "expected_range": [
+          29,
+          35
+        ],
+        "in_expected_range": null,
+        "prediction_error": null
+      },
+      {
+        "name": "Dwarka (residential)",
+        "lat": 28.5921,
+        "lon": 77.046,
+        "expected_type": "moderate",
+        "lst_actual": null,
+        "lst_predicted": null,
+        "expected_range": [
+          34,
+          40
+        ],
+        "in_expected_range": null,
+        "prediction_error": null
+      },
+      {
+        "name": "IMD Safdarjung",
+        "lat": 28.588,
+        "lon": 77.206,
+        "expected_type": "reference",
+        "lst_actual": null,
+        "lst_predicted": null,
+        "expected_range": [
+          31.5,
+          37.5
+        ],
+        "in_expected_range": null,
+        "prediction_error": null
+      }
+    ]
+  },
+  "cross_validation": {
+    "method": "5-fold",
+    "n_samples": 50000,
+    "metrics": {
+      "R2_mean": 0.9964,
+      "R2_std": 0.0001,
+      "RMSE_mean_C": 0.1177,
+      "RMSE_std_C": 0.0009,
+      "MAE_mean_C": 0.0933,
+      "MAE_std_C": 0.0008
+    }
+  },
+  "physical_consistency": {
+    "parks_cooler_than_cbd": null,
+    "high_ndvi_low_lst_correlation": -0.7514
+  }
+}

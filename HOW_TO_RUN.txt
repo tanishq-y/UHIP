@@ -1,0 +1,318 @@
+================================================================================
+            UHIP - STEP BY STEP GUIDE TO RUN THE PROJECT
+================================================================================
+
+BEFORE YOU START:
+  - Make sure you have Python 3.11 or 3.12 installed
+  - Open Command Prompt (CMD) or PowerShell
+  - Navigate to your project folder
+
+================================================================================
+STEP 0: Open Terminal & Go to Project Folder
+================================================================================
+
+Open PowerShell or CMD and type:
+
+  cd "C:\Users\yashchoudhary1\Desktop\New folder\UHIP-main\UHIP-main"
+
+================================================================================
+STEP 1: Install Dependencies (One Time Only)
+================================================================================
+
+Run this command to install all required Python packages:
+
+  pip install -r requirements.txt
+
+If some packages fail, install the core ones manually:
+
+  pip install numpy rasterio scikit-learn xgboost shap joblib matplotlib pyyaml geopandas scipy fastapi uvicorn
+
+Wait until all packages finish downloading. This takes 2-5 minutes.
+
+================================================================================
+STEP 2: Generate Demo Data (Since you don't have raw satellite files)
+================================================================================
+
+  python generate_demo_data.py
+
+WHAT HAPPENS:
+  - Creates synthetic but realistic raster data for Delhi
+  - Generates 5 files in data/processed/ folder:
+    * LST_Celsius.tif (temperature map)
+    * NDVI.tif (vegetation map)
+    * NDBI.tif (built-up map)
+    * BUILD_DENSITY.tif (building density)
+    * UHVI_FINAL.tif (heat vulnerability)
+  
+EXPECTED OUTPUT:
+  ============================================================
+  UHIP - Generating Demo Raster Data for Delhi
+  ============================================================
+    Grid: 400x400 pixels (50m resolution)
+    LST range: 29.7 - 43.9 C
+    ...
+  ✓ Demo data generated in data/processed/
+
+TIME: ~5 seconds
+
+================================================================================
+STEP 3: Train the AI/ML Model
+================================================================================
+
+  python train_model.py
+
+WHAT HAPPENS:
+  - Loads all 5 raster layers
+  - Creates 6 features from the data
+  - Trains XGBoost machine learning model
+  - Calculates SHAP values (which factors cause most heat)
+  - Saves model to models/ folder
+  - Creates SHAP plots
+
+EXPECTED OUTPUT:
+  ============================================================
+  UHIP - Training Urban Heat Dynamics Model
+  ============================================================
+  [1/7] Loading rasters...
+  [2/7] Engineering additional features...
+  [3/7] Building tabular dataset...
+  [4/7] Training XGBoost model...
+  [5/7] Evaluating model...
+    R2        0.9962
+    RMSE      0.1203
+  [6/7] Computing SHAP values...
+    ndbi         0.7249 (top driver!)
+  [7/7] Saving model...
+  ✓ MODEL TRAINING COMPLETE
+
+TIME: ~30-60 seconds
+
+FILES CREATED:
+  models/xgb_lst_model.json       (trained model)
+  models/xgb_lst_model.joblib     (model backup)
+  models/model_metadata.json      (results & metrics)
+  models/shap_summary.png         (SHAP beeswarm plot - OPEN THIS)
+  models/shap_bar.png             (SHAP bar chart - OPEN THIS)
+
+================================================================================
+STEP 4: Run Cooling Scenarios
+================================================================================
+
+  python simulate_cooling.py
+
+WHAT HAPPENS:
+  - Loads trained model
+  - Simulates 5 different cooling interventions:
+    1. Urban Greening (plant more trees)
+    2. Cool Roofs (reflective roof materials)
+    3. Green Roofs (vegetation on rooftops)
+    4. Water Bodies (add ponds/fountains)
+    5. Combined Optimal (best mix of all)
+  - Calculates temperature reduction for each
+  - Creates comparison chart
+
+EXPECTED OUTPUT:
+  ============================================================
+  UHIP - Cooling Scenario Simulator
+  ============================================================
+  urban_greening:    -1.70 C cooling
+  cool_roofs:        -2.78 C cooling
+  green_roofs:       -3.15 C cooling
+  combined_optimal:  -3.38 C cooling (BEST!)
+  
+  ✓ OPTIMAL INTERVENTION STRATEGY
+    Recommended: combined_optimal
+    Expected cooling: 3.38 C in target zones
+
+TIME: ~30-60 seconds
+
+FILES CREATED:
+  outputs/scenarios/scenario_results.json
+  outputs/scenarios/scenario_comparison.png    (OPEN THIS - bar chart)
+  outputs/scenarios/delta_urban_greening.tif   (temperature change map)
+  outputs/scenarios/delta_cool_roofs.tif
+  outputs/scenarios/delta_green_roofs.tif
+  outputs/scenarios/delta_combined_optimal.tif
+
+================================================================================
+STEP 5: Identify Heat Hotspots
+================================================================================
+
+  python identify_hotspots.py
+
+WHAT HAPPENS:
+  - Computes Getis-Ord Gi* spatial statistics
+  - Identifies statistically significant hot zones
+  - Clusters them into discrete hotspot regions
+  - Creates heat stress classification map (5 levels)
+  - Exports hotspot boundaries as GeoJSON
+
+EXPECTED OUTPUT:
+  ============================================================
+  UHIP - Heat Hotspot Identification
+  ============================================================
+  Hot spots (z > 1.96): 34,576 pixels
+  Cold spots (z < -1.96): 98,907 pixels
+  Significant hotspot clusters: 1
+  ✓ HOTSPOT IDENTIFICATION COMPLETE
+
+TIME: ~10-20 seconds
+
+FILES CREATED:
+  outputs/hotspots/heat_hotspots.geojson     (hotspot boundaries)
+  outputs/hotspots/hotspot_stats.json        (statistics)
+  outputs/hotspots/gi_star_zscore.tif        (z-score raster)
+  outputs/hotspots/heat_stress_map.tif       (5-class map)
+  outputs/hotspots/hotspot_maps.png          (OPEN THIS - visualization)
+
+================================================================================
+STEP 6: Validate the Model
+================================================================================
+
+  python validate_model.py
+
+WHAT HAPPENS:
+  - Tests model against known Delhi locations
+  - Runs 5-fold cross-validation
+  - Checks physical consistency (parks < CBD temperature)
+  - Generates validation report
+
+EXPECTED OUTPUT:
+  ============================================================
+  UHIP - Model Validation
+  ============================================================
+  Cross-Validation R²: 0.9964 ± 0.0001
+  NDVI-LST correlation: -0.7514 (correctly negative)
+  ✓ VALIDATION COMPLETE
+
+TIME: ~30 seconds
+
+FILES CREATED:
+  outputs/validation/validation_report.json
+  outputs/validation/actual_vs_predicted.png   (OPEN THIS)
+
+================================================================================
+STEP 7: Generate All Heat Maps & Visualizations
+================================================================================
+
+  python generate_heatmaps.py
+
+WHAT HAPPENS:
+  - Creates a 6-panel heat map dashboard showing:
+    * LST (temperature), NDVI (vegetation), NDBI (built-up)
+    * Building density, UHVI, Heat Stress Classification
+  - Creates cooling scenario maps
+  - Creates driver analysis chart
+
+EXPECTED OUTPUT:
+  ✓ Main dashboard → outputs/heatmap_dashboard.png
+  ✓ Cooling scenarios → outputs/cooling_scenarios_maps.png
+  ✓ Driver analysis → outputs/driver_analysis.png
+  ✓ ALL VISUALIZATIONS GENERATED
+
+TIME: ~10 seconds
+
+FILES CREATED:
+  outputs/heatmap_dashboard.png         (*** MAIN RESULT - OPEN THIS ***)
+  outputs/cooling_scenarios_maps.png    (OPEN THIS)
+  outputs/driver_analysis.png           (OPEN THIS)
+
+================================================================================
+STEP 8 (Optional): Start the API Server
+================================================================================
+
+  uvicorn backend.app.main:app --reload --port 8000
+
+WHAT HAPPENS:
+  - Starts a web server on http://localhost:8000
+  - You can query any point in Delhi
+
+TEST IT:
+  Open browser and go to:
+  http://localhost:8000/api/point?lat=28.6139&lon=77.2090
+
+  This returns JSON with LST, NDVI, NDBI, UHVI, risk level for that location.
+
+TO STOP: Press Ctrl+C in the terminal
+
+================================================================================
+VIEWING YOUR RESULTS
+================================================================================
+
+After running Steps 2-7, open these files to see your results:
+
+1. MAIN HEAT MAP (most important):
+   Open: outputs\heatmap_dashboard.png
+   Shows: 6-panel overview of all layers
+
+2. SHAP ANALYSIS (driver importance):
+   Open: models\shap_summary.png
+   Open: models\shap_bar.png
+   Shows: Which factors cause the most urban heating
+
+3. COOLING SCENARIOS:
+   Open: outputs\scenarios\scenario_comparison.png
+   Shows: Bar chart comparing all interventions
+
+4. HOTSPOT MAP:
+   Open: outputs\hotspots\hotspot_maps.png
+   Shows: Gi* hot/cold spots + stress classification
+
+5. SCENARIO TEMPERATURE MAPS:
+   Open: outputs\cooling_scenarios_maps.png
+   Shows: Spatial cooling effect of each intervention
+
+6. DRIVER ANALYSIS:
+   Open: outputs\driver_analysis.png
+   Shows: SHAP feature importance bar chart
+
+7. VALIDATION:
+   Open: outputs\validation\actual_vs_predicted.png
+   Shows: Model accuracy scatter plot
+
+================================================================================
+QUICK COPY-PASTE (Run all at once)
+================================================================================
+
+Copy and paste these commands one by one in PowerShell:
+
+  cd "C:\Users\yashchoudhary1\Desktop\New folder\UHIP-main\UHIP-main"
+  python generate_demo_data.py
+  python train_model.py
+  python simulate_cooling.py
+  python identify_hotspots.py
+  python validate_model.py
+  python generate_heatmaps.py
+
+Then open the outputs folder to see all results:
+
+  explorer outputs
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+ERROR: "No module named 'numpy'"
+FIX:   pip install numpy
+
+ERROR: "No module named 'rasterio'"  
+FIX:   pip install rasterio
+
+ERROR: "No module named 'xgboost'"
+FIX:   pip install xgboost
+
+ERROR: "No module named 'shap'"
+FIX:   pip install shap
+
+ERROR: "LST_Celsius.tif: No such file or directory"
+FIX:   You forgot Step 2. Run: python generate_demo_data.py
+
+ERROR: "Model not trained yet"
+FIX:   You forgot Step 3. Run: python train_model.py
+
+ERROR: "module 'matplotlib.cm' has no attribute 'get_cmap'"
+FIX:   Your matplotlib is newer. This is already fixed in the code.
+
+================================================================================
+                              END
+================================================================================

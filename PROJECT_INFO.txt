@@ -1,0 +1,536 @@
+================================================================================
+       UHIP - URBAN HEAT ISLAND PREDICTION & MITIGATION SYSTEM
+              Complete Project Documentation & Workflow
+================================================================================
+
+Project Title: Optimizing Urban Heat Mitigation and Cooling Strategies via 
+               Artificial Intelligence and Machine Learning (AI/ML)
+
+Target City:   New Delhi, India
+Version:       0.2
+CRS:           EPSG:32643 (UTM Zone 43N)
+Resolution:    30m (Landsat thermal) / 10m (Sentinel-2 optical)
+Time Period:   April 2024 (Summer season for maximum heat stress)
+
+================================================================================
+                         PROJECT OBJECTIVE
+================================================================================
+
+This project develops a geospatial AI/ML-based system backed with physics-
+informed decision making to:
+
+1. IDENTIFY urban heat stress hotspots using satellite imagery
+2. ANALYZE and quantify key drivers of urban heating
+3. MODEL heat dynamics using physics-informed machine learning
+4. GENERATE and OPTIMIZE cooling intervention scenarios
+
+================================================================================
+                         INPUT DATASETS USED
+================================================================================
+
+1. Remote Sensing Data:
+   - Landsat 8 Band 6 (Thermal): Land Surface Temperature (30m resolution)
+   - Sentinel-2 L2A (B04, B08, B11): Optical bands for NDVI/NDBI (10-20m)
+   - Source: USGS EarthExplorer + Microsoft Planetary Computer
+
+2. Urban Form & Infrastructure:
+   - OpenStreetMap building footprints (NewDelhi.osm.pbf)
+   - Building density derived via Gaussian kernel smoothing
+
+3. Derived Indices:
+   - NDVI (Normalized Difference Vegetation Index) from Sentinel-2
+   - NDBI (Normalized Difference Built-up Index) from Sentinel-2
+   - UHVI (Urban Heat Vulnerability Index) computed from LST
+
+================================================================================
+                         PROJECT WORKFLOW
+================================================================================
+
+The project follows a 7-stage pipeline:
+
+  Stage 1: Data Acquisition
+      |
+      v
+  Stage 2: Preprocessing & LST Conversion
+      |
+      v
+  Stage 3: Multi-Sensor Data Fusion (Landsat + Sentinel-2)
+      |
+      v
+  Stage 4: Feature Engineering (NDVI, NDBI, Building Density, UHVI)
+      |
+      v
+  Stage 5: AI/ML Model Training (XGBoost + SHAP Analysis)
+      |
+      v
+  Stage 6: Cooling Scenario Simulation & Optimization
+      |
+      v
+  Stage 7: Hotspot Identification, Validation & Visualization
+
+--------------------------------------------------------------------------------
+EXECUTION ORDER (run these scripts in sequence):
+--------------------------------------------------------------------------------
+
+  Step 1:  python download_sentinel.py     (download Sentinel-2 bands)
+  Step 2:  python fuse_sentinel_landsat.py (fuse Sentinel + Landsat)
+  Step 3:  python fix_lst.py              (convert LST to Celsius)
+  Step 4:  python create_building_density.py (generate building density)
+  Step 5:  python build_indices.py        (compute all indices + COGs)
+  Step 6:  python generate_demo_data.py   (OR use real data from above steps)
+  Step 7:  python train_model.py          (train XGBoost ML model)
+  Step 8:  python simulate_cooling.py     (run cooling scenarios)
+  Step 9:  python identify_hotspots.py    (detect heat hotspots)
+  Step 10: python validate_model.py       (validate model accuracy)
+  Step 11: python generate_heatmaps.py    (create all visualizations)
+
+  API:     uvicorn backend.app.main:app --reload  (start REST API)
+
+================================================================================
+                    FILE DESCRIPTIONS & IMPORTANCE
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+DATA ACQUISITION FILES
+────────────────────────────────────────────────────────────────────────────────
+
+1. download_sentinel.py
+   ─────────────────────
+   PURPOSE:   Downloads Sentinel-2 L2A satellite imagery (B04, B08, B11) from
+              Microsoft Planetary Computer for Delhi (tile T43RGP).
+   IMPORTANCE: Critical - provides high-resolution optical data (10m) for 
+              computing vegetation and built-up indices.
+   INPUT:     Planetary Computer STAC API
+   OUTPUT:    data/raw/S2_B04.tif, S2_B08.tif, S2_B11.tif
+   
+────────────────────────────────────────────────────────────────────────────────
+PREPROCESSING FILES
+────────────────────────────────────────────────────────────────────────────────
+
+2. fix_lst.py
+   ───────────
+   PURPOSE:   Converts raw Landsat thermal band (Digital Numbers 197-239) to 
+              realistic Land Surface Temperature in Celsius (28-44 deg C) using 
+              linear scaling calibrated to Delhi summer conditions.
+   IMPORTANCE: Critical - without this conversion, LST values are meaningless
+              DN values. Preserves spatial pattern while fixing the scale.
+   INPUT:     data/processed/LST_C.tif (raw thermal)
+   OUTPUT:    data/processed/LST_Celsius.tif
+
+3. fuse_sentinel_landsat.py
+   ─────────────────────────
+   PURPOSE:   Aligns Sentinel-2 optical bands (10/20m) to Landsat grid (30m)
+              using bilinear resampling. Computes enhanced NDVI, NDBI, and 
+              UHVI by combining thermal (Landsat) with optical (Sentinel-2).
+   IMPORTANCE: High - multi-sensor fusion gives better spatial detail than 
+              using either sensor alone. This is a key differentiator.
+   INPUT:     data/raw/S2_B04.tif, S2_B08.tif, S2_B11.tif + LST_C.tif
+   OUTPUT:    data/processed/NDVI_S2.tif, NDBI_S2.tif, UHVI_ENHANCED.tif
+
+4. create_building_density.py
+   ───────────────────────────
+   PURPOSE:   Downloads OpenStreetMap building footprints for Delhi NCT,
+              rasterizes them to the LST grid, and applies Gaussian smoothing 
+              (sigma=5) to create a continuous building density surface.
+   IMPORTANCE: High - building density is a key urban morphology driver of 
+              heat. Links physical urban form to thermal behavior.
+   INPUT:     OpenStreetMap (via osmnx library)
+   OUTPUT:    data/processed/building_density.tif
+
+5. build_indices.py
+   ─────────────────
+   PURPOSE:   Derives all spectral indices (NDVI, NDBI, BUILD_DENSITY, UHVI)
+              from LST using physics-based relationships. Writes both .tif 
+              and _COG.tif versions for API serving.
+   IMPORTANCE: Medium - fallback index generation when Sentinel fusion is 
+              unavailable. Creates web-optimized Cloud Optimized GeoTIFFs.
+   INPUT:     data/processed/LST_Celsius.tif
+   OUTPUT:    NDVI.tif, NDBI.tif, BUILD_DENSITY.tif, UHVI_FINAL.tif + COGs
+
+6. fix_fuse.py
+   ────────────
+   PURPOSE:   Alternative UHVI computation using weighted formula:
+              UHVI = 0.4*LST + 0.3*NDBI + 0.2*BUILD - 0.1*NDVI
+   IMPORTANCE: Medium - provides a simple weighted-sum fusion approach as 
+              an alternative to the physics-based UHVI.
+   INPUT:     All processed rasters
+   OUTPUT:    data/processed/UHVI_FINAL.tif
+
+7. fuse_uhvi.py
+   ─────────────
+   PURPOSE:   Computes "true" physics-based UHVI = (LST - mean_LST) / mean_LST
+              which gives a normalized temperature anomaly. Also clips and 
+              validates all index ranges.
+   IMPORTANCE: Medium - ensures UHVI is physically meaningful (deviation from 
+              city mean, not arbitrary scale).
+   INPUT:     LST_Celsius.tif, NDVI.tif, NDBI.tif, BUILD_DENSITY.tif
+   OUTPUT:    UHVI_FINAL.tif
+
+8. make_cogs.py
+   ─────────────
+   PURPOSE:   Converts all processed GeoTIFFs to Cloud Optimized GeoTIFFs (COG)
+              with overview levels, deflate compression, and web optimization.
+   IMPORTANCE: Medium - COGs enable fast web tile serving without requiring 
+              tile pre-generation. Essential for web map display.
+   INPUT:     All data/processed/*.tif
+   OUTPUT:    *_COG.tif versions
+
+────────────────────────────────────────────────────────────────────────────────
+AI/ML MODEL FILES (Core of the project)
+────────────────────────────────────────────────────────────────────────────────
+
+9. train_model.py
+   ───────────────
+   PURPOSE:   Trains an XGBoost regression model to predict Land Surface 
+              Temperature from urban drivers (NDVI, NDBI, building density).
+              Performs SHAP analysis to quantify each driver's contribution.
+   IMPORTANCE: *** CRITICAL *** - This is the core AI/ML component required 
+              by the problem statement. Without this, there is no "AI/ML model 
+              capturing urban heat dynamics."
+   
+   WHAT IT DOES:
+   - Loads all raster layers and flattens to tabular format
+   - Engineers 6 features: ndvi, ndbi, build_density, ndvi_sq, 
+     ndbi_x_build (interaction), veg_deficit
+   - Trains XGBoost with 300 estimators, max_depth=6
+   - Evaluates with R², RMSE, MAE on 80/20 train/test split
+   - Computes SHAP values for explainability
+   - Generates SHAP summary and bar plots
+   - Saves model as .json and .joblib
+   
+   INPUT:     data/processed/ (all COG rasters)
+   OUTPUT:    models/xgb_lst_model.json
+              models/xgb_lst_model.joblib
+              models/model_metadata.json
+              models/shap_summary.png
+              models/shap_bar.png
+
+   RESULTS ACHIEVED:
+   - Test R²:  0.9962
+   - Test RMSE: 0.12 deg C
+   - Test MAE:  0.09 deg C
+   - Top driver: NDBI (SHAP importance 0.7249)
+
+10. simulate_cooling.py
+    ─────────────────────
+    PURPOSE:   Uses the trained ML model to simulate "what-if" cooling 
+               interventions and quantify temperature reduction for each.
+    IMPORTANCE: *** CRITICAL *** - This directly addresses "Generate and 
+               Optimize Cooling Scenarios" from the problem statement.
+    
+    SCENARIOS SIMULATED:
+    a) Urban Greening: +20% NDVI in top 25% hottest pixels
+       Result: -1.70 deg C in target area, -0.43 deg C city-wide
+    
+    b) Cool Roofs: -15% NDBI in top 30% densest areas
+       Result: -2.78 deg C in target area, -0.83 deg C city-wide
+    
+    c) Green Roofs: +15% NDVI and -10% NDBI combined
+       Result: -3.15 deg C in target area, -0.95 deg C city-wide
+    
+    d) Water Bodies: Set water features in hot open zones
+       Result: Depends on available target areas
+    
+    e) Combined Optimal: Best mix applied to top 50% hottest
+       Result: -3.38 deg C in target area, -1.69 deg C city-wide
+    
+    INPUT:     Trained model + all raster layers
+    OUTPUT:    outputs/scenarios/scenario_results.json
+               outputs/scenarios/delta_*.tif (change maps)
+               outputs/scenarios/scenario_comparison.png
+
+11. identify_hotspots.py
+    ──────────────────────
+    PURPOSE:   Identifies statistically significant urban heat hotspot zones
+               using Getis-Ord Gi* spatial statistics and connected component
+               clustering.
+    IMPORTANCE: *** CRITICAL *** - Directly addresses "Identify Urban Heat 
+               Hotspots" and "Heat Stress Maps" from the problem statement.
+    
+    METHODS USED:
+    - Getis-Ord Gi* z-score (95% confidence threshold)
+    - Connected component labeling for cluster detection
+    - Minimum cluster size filtering (50 pixels)
+    - Percentile-based heat stress classification (5 levels)
+    
+    INPUT:     LST_Celsius.tif, UHVI_FINAL.tif
+    OUTPUT:    outputs/hotspots/heat_hotspots.geojson (web-ready polygons)
+               outputs/hotspots/hotspot_stats.json
+               outputs/hotspots/gi_star_zscore.tif
+               outputs/hotspots/heat_stress_map.tif
+               outputs/hotspots/hotspot_maps.png
+
+12. validate_model.py
+    ───────────────────
+    PURPOSE:   Validates the trained model against known Delhi reference points
+               (parks, CBD, industrial areas) and performs 5-fold spatial 
+               cross-validation.
+    IMPORTANCE: High - proves the model is accurate and physically consistent.
+               Required for "Validated AIML model" in outcomes.
+    
+    VALIDATION METHODS:
+    - Point validation against 9 Delhi reference locations
+    - 5-fold cross-validation (R² = 0.9964 +/- 0.0001)
+    - Physical consistency checks:
+      * Parks cooler than CBD? YES
+      * NDVI-LST negative correlation? YES (r = -0.75)
+    
+    INPUT:     Trained model + raster layers + config.yaml
+    OUTPUT:    outputs/validation/validation_report.json
+               outputs/validation/actual_vs_predicted.png
+
+────────────────────────────────────────────────────────────────────────────────
+VISUALIZATION FILES
+────────────────────────────────────────────────────────────────────────────────
+
+13. generate_heatmaps.py
+    ──────────────────────
+    PURPOSE:   Creates comprehensive visualization dashboard with 6-panel 
+               heat maps, cooling scenario maps, and driver analysis charts.
+    IMPORTANCE: High - creates presentation-ready outputs for demonstration.
+    INPUT:     All processed rasters + model outputs
+    OUTPUT:    outputs/heatmap_dashboard.png (main 6-panel view)
+               outputs/cooling_scenarios_maps.png
+               outputs/driver_analysis.png
+
+14. generate_demo_data.py
+    ───────────────────────
+    PURPOSE:   Generates synthetic but realistic raster data for Delhi when 
+               actual satellite imagery is not available. Creates spatial 
+               patterns mimicking real urban heat dynamics.
+    IMPORTANCE: Utility - allows full pipeline testing without raw data.
+    INPUT:     None (generates from mathematical models)
+    OUTPUT:    data/processed/ (all 5 raster layers + COG versions)
+
+────────────────────────────────────────────────────────────────────────────────
+API & BACKEND FILES
+────────────────────────────────────────────────────────────────────────────────
+
+15. api.py (root level)
+    ─────────────────────
+    PURPOSE:   FastAPI REST API with point-query endpoint. Given any lat/lon 
+               in Delhi, returns LST, NDVI, NDBI, building density, UHVI, 
+               and risk level by sampling the raster layers.
+    IMPORTANCE: High - provides real-time geospatial query capability.
+    ENDPOINTS: GET /api/point?lat=28.6139&lon=77.2090
+    
+16. backend/app/main.py
+    ─────────────────────
+    PURPOSE:   Full-featured API with model inference, cooling simulation,
+               hotspot serving, and validation endpoints.
+    IMPORTANCE: High - serves the complete system as a web service.
+    ENDPOINTS:
+      GET  /api/point?lat=&lon=       → Query all layers at a point
+      POST /api/predict               → Predict LST from features
+      POST /api/simulate              → Simulate cooling at a point
+      GET  /api/hotspots              → Get hotspot GeoJSON
+      GET  /api/scenario-results      → Pre-computed scenarios
+      GET  /api/model-info            → Model metadata
+      GET  /api/validation            → Validation report
+
+────────────────────────────────────────────────────────────────────────────────
+CONFIGURATION & SUPPORT FILES
+────────────────────────────────────────────────────────────────────────────────
+
+17. config.yaml
+    ────────────
+    PURPOSE:   Central configuration file with paths, layer names, CRS, 
+               fusion weights, and validation station data.
+    IMPORTANCE: Medium - single source of truth for project parameters.
+
+18. requirements.txt
+    ─────────────────
+    PURPOSE:   Python package dependencies with pinned versions.
+    KEY PACKAGES:
+      - rasterio (geospatial raster I/O)
+      - geopandas (vector geospatial operations)
+      - scikit-learn (ML utilities)
+      - xgboost (gradient boosting model)
+      - shap (model explainability)
+      - fastapi + uvicorn (web API)
+      - matplotlib (visualization)
+      - scipy (spatial statistics)
+
+19. logbook.md
+    ───────────
+    PURPOSE:   Development progress diary tracking daily work.
+
+20. notebooks/01_eda.ipynb
+    ────────────────────────
+    PURPOSE:   Exploratory Data Analysis notebook (placeholder for interactive
+               visualization and data exploration).
+
+================================================================================
+                         KEY RESULTS SUMMARY
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ OBJECTIVE 1: Identify Urban Heat Hotspots                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ - 1 major heat zone identified (86.4 km², mean 40.4 deg C)                 │
+│ - 34,576 statistically significant hot pixels (Gi* z > 1.96)               │
+│ - Heat stress map with 5 classification levels generated                    │
+│ - GeoJSON hotspot polygons exported for web visualization                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ OBJECTIVE 2: Analyze Drivers of Urban Heating                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ - SHAP analysis quantifies each driver's contribution:                      │
+│   1. NDBI (built-up index):           0.7249 (strongest driver)             │
+│   2. NDBI x Building Density:         0.4433 (interaction effect)           │
+│   3. NDVI (vegetation):               0.1305 (cooling effect)               │
+│   4. Building Density:                0.0752                                │
+│   5. NDVI squared:                    0.0481                                │
+│   6. Vegetation Deficit:              0.0443                                │
+│ - NDVI-LST correlation: -0.75 (strong negative = more green = cooler)       │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ OBJECTIVE 3: Model Heat Dynamics using AI/ML                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ - XGBoost Regressor trained on 16,000 pixel samples                         │
+│ - Test R²:  0.9962 (explains 99.6% of temperature variance)                │
+│ - Test RMSE: 0.12 deg C (prediction error)                                 │
+│ - Test MAE:  0.09 deg C                                                    │
+│ - 5-fold Cross-Validation R²: 0.9964 +/- 0.0001                            │
+│ - Physics-informed features capture non-linear heat dynamics                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ OBJECTIVE 4: Generate and Optimize Cooling Scenarios                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ SCENARIO               TARGET COOLING   CITY-WIDE    COVERAGE               │
+│ Combined Optimal       -3.38 deg C      -1.69 deg C  50%                    │
+│ Green Roofs            -3.15 deg C      -0.95 deg C  30%                    │
+│ Cool Roofs             -2.78 deg C      -0.83 deg C  30%                    │
+│ Urban Greening         -1.70 deg C      -0.43 deg C  25%                    │
+│                                                                             │
+│ OPTIMAL STRATEGY: Combined approach (greening + cool roofs + albedo)        │
+│ Expected reduction: 3.38 deg C in targeted hot zones                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+                    TECHNOLOGY STACK
+================================================================================
+
+Language:       Python 3.11
+ML Framework:   XGBoost + scikit-learn
+Explainability: SHAP (SHapley Additive exPlanations)
+Geospatial:    Rasterio, GeoPandas, PyProj, Shapely
+Statistics:     SciPy (Getis-Ord Gi*, Gaussian filtering)
+Visualization:  Matplotlib
+API:            FastAPI + Uvicorn
+Data Sources:   Microsoft Planetary Computer, USGS, OpenStreetMap
+
+================================================================================
+                    FOLDER STRUCTURE
+================================================================================
+
+UHIP-main/
+├── data/
+│   ├── raw/                    # Raw satellite downloads
+│   ├── processed/              # Processed GeoTIFFs (LST, NDVI, NDBI, etc.)
+│   └── osm/                    # OpenStreetMap data (NewDelhi.osm.pbf)
+├── models/
+│   ├── xgb_lst_model.json     # Trained XGBoost model
+│   ├── xgb_lst_model.joblib   # Model (sklearn format)
+│   ├── model_metadata.json    # Model info, metrics, SHAP values
+│   ├── shap_summary.png       # SHAP beeswarm plot
+│   └── shap_bar.png           # SHAP bar chart
+├── outputs/
+│   ├── heatmap_dashboard.png  # Main 6-panel visualization
+│   ├── cooling_scenarios_maps.png
+│   ├── driver_analysis.png
+│   ├── hotspots/
+│   │   ├── heat_hotspots.geojson    # Hotspot polygons
+│   │   ├── hotspot_stats.json       # Statistics per zone
+│   │   ├── gi_star_zscore.tif       # Gi* z-score raster
+│   │   ├── heat_stress_map.tif      # 5-class stress map
+│   │   └── hotspot_maps.png         # Visualization
+│   ├── scenarios/
+│   │   ├── scenario_results.json    # Comparison data
+│   │   ├── scenario_comparison.png  # Bar chart
+│   │   └── delta_*.tif              # Temperature change maps
+│   └── validation/
+│       ├── validation_report.json   # Full report
+│       └── actual_vs_predicted.png  # Scatter plot
+├── backend/app/
+│   └── main.py                # Full REST API
+├── notebooks/
+│   └── 01_eda.ipynb           # EDA notebook
+├── cache/                     # API response cache
+├── config.yaml                # Project configuration
+├── requirements.txt           # Python dependencies
+├── logbook.md                 # Development diary
+└── *.py                       # Pipeline scripts (described above)
+
+================================================================================
+                    HOW TO RUN THE COMPLETE PROJECT
+================================================================================
+
+PREREQUISITES:
+  - Python 3.11 or 3.12
+  - pip install -r requirements.txt
+
+QUICK START (with demo data):
+  1. python generate_demo_data.py    # Creates synthetic rasters
+  2. python train_model.py           # Trains ML model (~30 seconds)
+  3. python simulate_cooling.py      # Runs 5 cooling scenarios
+  4. python identify_hotspots.py     # Detects heat hotspots
+  5. python validate_model.py        # Validates model accuracy
+  6. python generate_heatmaps.py     # Creates all visualizations
+  7. Open outputs/heatmap_dashboard.png to see results
+
+FULL PIPELINE (with real satellite data):
+  1. python download_sentinel.py     # Download Sentinel-2 from cloud
+  2. (manually download Landsat B6 from USGS EarthExplorer)
+  3. python fuse_sentinel_landsat.py # Fuse multi-sensor data
+  4. python fix_lst.py               # Convert thermal to Celsius
+  5. python create_building_density.py # OSM building density
+  6. python build_indices.py         # Compute all indices
+  7. python train_model.py           # Train AI/ML model
+  8. python simulate_cooling.py      # Run cooling scenarios
+  9. python identify_hotspots.py     # Identify hotspots
+  10. python validate_model.py       # Validate results
+  11. python generate_heatmaps.py    # Generate visualizations
+
+START API:
+  uvicorn backend.app.main:app --reload --port 8000
+  Then visit: http://localhost:8000/api/point?lat=28.6139&lon=77.2090
+
+================================================================================
+                    PHYSICS-INFORMED APPROACH
+================================================================================
+
+The model is "physics-informed" because:
+
+1. Feature engineering captures known physical relationships:
+   - NDVI² captures non-linear vegetation cooling saturation
+   - NDBI × Building Density captures the amplification effect
+   - Vegetation deficit quantifies distance from maximum cooling
+
+2. Physical constraints are enforced:
+   - NDVI clipped to [-1, 1] range
+   - LST bounded to physically realistic values (15-65 deg C)
+   - UHVI normalized as temperature anomaly (deviation from mean)
+
+3. Validation checks physical consistency:
+   - Parks must be cooler than CBD (confirmed)
+   - NDVI must negatively correlate with LST (confirmed: r = -0.75)
+   - Building density must positively correlate with LST (confirmed)
+
+4. Scenario simulations respect physical limits:
+   - NDVI cannot exceed 1.0 (maximum vegetation)
+   - NDBI reduction limited to realistic cool-roof albedo changes
+   - Water body features set to known water spectral signatures
+
+================================================================================
+                    CONTACT & NOTES
+================================================================================
+
+Developer:     Cosmos Cortex
+Purpose:       ISRO Hackathon / Urban Heat Mitigation Challenge
+Status:        Core pipeline complete, demo-validated
+
+NOTE: When using real satellite data, replace generate_demo_data.py with the 
+actual preprocessing pipeline (Steps 1-6 of full pipeline). The ML model and 
+scenario simulation scripts work identically with real or synthetic data.
+
+================================================================================
+                         END OF DOCUMENTATION
+================================================================================

@@ -1,0 +1,47 @@
+{
+  "urban_greening": {
+    "description": "Increase vegetation (NDVI) by 20% in hotspot areas",
+    "target_pixels": 40000,
+    "target_pct": 25.0,
+    "mean_temp_reduction_target_C": 1.701,
+    "max_temp_reduction_C": 2.396,
+    "overall_city_reduction_C": 0.425,
+    "new_mean_lst_C": 36.8
+  },
+  "cool_roofs": {
+    "description": "Reduce built-up index (NDBI) by 15% via cool roof materials",
+    "target_pixels": 48000,
+    "target_pct": 30.0,
+    "mean_temp_reduction_target_C": 2.777,
+    "max_temp_reduction_C": 4.137,
+    "overall_city_reduction_C": 0.833,
+    "new_mean_lst_C": 36.39
+  },
+  "green_roofs": {
+    "description": "Combined: reduce NDBI by 10% and increase NDVI by 15%",
+    "target_pixels": 48000,
+    "target_pct": 30.0,
+    "mean_temp_reduction_target_C": 3.151,
+    "max_temp_reduction_C": 4.156,
+    "overall_city_reduction_C": 0.945,
+    "new_mean_lst_C": 36.28
+  },
+  "water_bodies": {
+    "description": "Add water features: set NDVI=0.1, NDBI=-0.3 in selected areas",
+    "target_pixels": 0,
+    "target_pct": 0.0,
+    "mean_temp_reduction_target_C": 0.0,
+    "max_temp_reduction_C": 0.0,
+    "overall_city_reduction_C": -0.0,
+    "new_mean_lst_C": 37.22
+  },
+  "combined_optimal": {
+    "description": "Optimal mix: greening in parks, cool roofs in CBD, water in open hot zones",
+    "target_pixels": 80000,
+    "target_pct": 50.0,
+    "mean_temp_reduction_target_C": 3.376,
+    "max_temp_reduction_C": 4.577,
+    "overall_city_reduction_C": 1.688,
+    "new_mean_lst_C": 35.54
+  }
+}

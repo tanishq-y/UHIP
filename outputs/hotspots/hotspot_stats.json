@@ -1,0 +1,12 @@
+[
+  {
+    "cluster_id": 1,
+    "centroid_lat": 28.45244,
+    "centroid_lon": 77.34766,
+    "area_km2": 86.44,
+    "mean_lst_c": 40.35,
+    "max_lst_c": 43.88,
+    "mean_uhvi": 0.084,
+    "risk_level": "Very High"
+  }
+]

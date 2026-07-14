@@ -6,6 +6,7 @@ pyproj==3.6.1
 shapely==2.0.4
 numpy==1.26.4
 pandas==2.2.2
+scipy==1.13.1
 scikit-learn==1.5.0
 xgboost==2.0.3
 lightgbm==4.3.0
@@ -13,5 +14,8 @@ shap==0.46.0
 fastapi==0.111.0
 uvicorn==0.30.1
 python-dotenv==1.0.1
+joblib==1.4.2
+matplotlib==3.9.0
+pyyaml==6.0.1
 # Optional: for Earth Engine (skip if not needed)
 earthengine-api==0.1.404
