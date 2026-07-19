@@ -83,6 +83,7 @@ pip install -r requirements.txt
 
 ### Data setup
 Processed raster files (LST, NDVI, NDBI, BUILD_DENSITY, UHVI — ~5 files) exceed GitHub's size limit and are hosted separately. Download them into `data/processed/`:
+link - https://drive.google.com/drive/folders/1DSv_DiMwR5ny1vonoVwgfFcCsRatdcea?usp=drive_link
 
 ```bash
 pip install gdown
